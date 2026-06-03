@@ -1,0 +1,21 @@
+# 数据文件（太大不上传）
+data/
+
+# 训练输出
+outputs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+.vscode/
+
+# 模型权重文件
+*.pt
+*.pth
+
+# 评分文件（太大）
+*.npy

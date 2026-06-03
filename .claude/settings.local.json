@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile data_loader.py)",
+      "Bash(python -m py_compile model.py)",
+      "Bash(python -m py_compile train.py)",
+      "Bash(python -m py_compile evaluate.py)",
+      "Bash(python -m py_compile utils.py)",
+      "Bash(python -c ' *)",
+      "Bash(python *)",
+      "Bash(nvidia-smi)",
+      "Bash(pip uninstall *)",
+      "Bash(pip install *)"
+    ]
+  }
+}
