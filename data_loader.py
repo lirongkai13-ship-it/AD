@@ -52,17 +52,15 @@ def build_labels(raw_labels, normal_label="Normal"):
     if raw_labels is None:
         return None
 
-    if raw_labels.dtype == object:
-        y = (
-            raw_labels.astype(str)
-            .str.strip()
-            .ne(str(normal_label))
-            .astype(int)
-            .values
-        )
-    else:
-        y = raw_labels.astype(int).values
-
+    # pandas 3.0 可能用 extension dtype (如 StringDtype) 读文本列
+    # 统一先转 str 再判断，避免 dtype==object 判断失效
+    y = (
+        raw_labels.astype(str)
+        .str.strip()
+        .ne(str(normal_label))
+        .astype(int)
+        .values
+    )
     return y.astype(np.int64)
 
 
@@ -356,7 +354,9 @@ def prepare_data(cfg):
 
     window_size = int(dcfg["window_size"])
     horizon = int(dcfg["horizon"])
-    stride = int(dcfg["stride"])
+    train_stride = int(dcfg.get("train_stride", dcfg.get("stride", 10)))
+    val_stride = int(dcfg.get("val_stride", dcfg.get("stride", 10)))
+    test_stride = int(dcfg.get("test_stride", dcfg.get("stride", 1)))
     label_mode = dcfg.get("label_mode", "future")
 
     # 全部使用惰性 Dataset：窗口在 __getitem__ 中实时生成，避免 OOM
@@ -365,7 +365,7 @@ def prepare_data(cfg):
         labels=train_labels,
         window_size=window_size,
         horizon=horizon,
-        stride=stride,
+        stride=train_stride,
         label_mode=label_mode,
     )
 
@@ -374,7 +374,7 @@ def prepare_data(cfg):
         labels=val_labels,
         window_size=window_size,
         horizon=horizon,
-        stride=stride,
+        stride=val_stride,
         label_mode=label_mode,
     )
 
@@ -383,7 +383,7 @@ def prepare_data(cfg):
         labels=merged_labels,
         window_size=window_size,
         horizon=horizon,
-        stride=stride,
+        stride=test_stride,
         label_mode=label_mode,
     )
 

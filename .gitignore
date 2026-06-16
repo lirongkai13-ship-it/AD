@@ -3,6 +3,7 @@ data/
 
 # 训练输出
 outputs/
+results/
 
 # Python
 __pycache__/
@@ -19,3 +20,4 @@ __pycache__/
 
 # 评分文件（太大）
 *.npy
+.claude/

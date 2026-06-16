@@ -130,6 +130,7 @@ def main():
         gat_heads=int(cfg["model"]["gat_heads"]),
         gru_hidden=int(cfg["model"]["gru_hidden"]),
         tcn_channels=int(cfg["model"]["tcn_channels"]),
+        tcn_blocks=int(cfg["model"].get("tcn_blocks", 2)),
         dropout=float(cfg["model"]["dropout"]),
     ).to(device)
 

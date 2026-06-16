@@ -1,0 +1,24 @@
+# 对比模型共享配置
+data:
+  window_size: 60
+  train_stride: 10
+  val_stride: 10
+  test_stride: 5
+  horizon: 1
+  label_mode: "future"
+  corr_threshold: 0.3
+
+train:
+  seed: 42
+  batch_size: 256
+  epochs: 5
+  lr: 0.001
+  weight_decay: 0.00001
+  device: "cuda"
+  num_workers: 0
+  amp: true
+  lr_patience: 3
+  early_stop_patience: 5
+
+output:
+  base_dir: "./results/models"

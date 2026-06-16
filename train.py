@@ -11,7 +11,7 @@ from model import GATv2TCNGRUDetector
 from utils import ensure_dir, get_device, load_config, save_json, set_seed
 
 
-def train_one_epoch(model, loader, edge_index, optimizer, device, lambda_pred=0.5):
+def train_one_epoch(model, loader, edge_index, optimizer, device, lambda_pred=0.5, use_amp=False, scaler=None):
     model.train()
     mse = nn.MSELoss()
     total_loss = 0.0
@@ -22,14 +22,23 @@ def train_one_epoch(model, loader, edge_index, optimizer, device, lambda_pred=0.
         y_recon = batch["y_recon"].to(device)
 
         optimizer.zero_grad()
-        pred, recon = model(x, edge_index)
 
-        loss_pred = mse(pred, y_future)
-        loss_recon = mse(recon, y_recon)
-        loss = lambda_pred * loss_pred + (1.0 - lambda_pred) * loss_recon
-
-        loss.backward()
-        optimizer.step()
+        if use_amp and scaler is not None:
+            with torch.autocast(device_type="cuda"):
+                pred, recon = model(x, edge_index)
+                loss_pred = mse(pred, y_future)
+                loss_recon = mse(recon, y_recon)
+                loss = lambda_pred * loss_pred + (1.0 - lambda_pred) * loss_recon
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            pred, recon = model(x, edge_index)
+            loss_pred = mse(pred, y_future)
+            loss_recon = mse(recon, y_recon)
+            loss = lambda_pred * loss_pred + (1.0 - lambda_pred) * loss_recon
+            loss.backward()
+            optimizer.step()
 
         total_loss += loss.item() * x.size(0)
 
@@ -93,6 +102,9 @@ def main():
         persistent_workers=(num_workers > 0),
     )
 
+    use_amp = cfg["train"].get("amp", False) and device.type == "cuda"
+    scaler = torch.GradScaler("cuda") if use_amp else None
+
     model = GATv2TCNGRUDetector(
         num_variables=info["num_variables"],
         window_size=int(cfg["data"]["window_size"]),
@@ -100,6 +112,7 @@ def main():
         gat_heads=int(cfg["model"]["gat_heads"]),
         gru_hidden=int(cfg["model"]["gru_hidden"]),
         tcn_channels=int(cfg["model"]["tcn_channels"]),
+        tcn_blocks=int(cfg["model"].get("tcn_blocks", 2)),
         dropout=float(cfg["model"]["dropout"]),
     ).to(device)
 
@@ -122,28 +135,23 @@ def main():
     epochs_no_improve = 0
     history = []
 
-    print(f"Device: {device}")
-    print(f"Variables: {info['num_variables']}")
-    print(f"Raw lengths: {info['raw_lengths']}")
-    print(f"Train samples: {len(train_dataset)}")
-    print(f"Val samples:   {len(val_dataset)}")
-    print(f"Test samples:  {len(test_dataset)}  # 只显示，不用于训练/选模型")
-    print(f"Edges: {edge_index.size(1)}")
+    print(f"Device: {device}  |  AMP: {use_amp}")
+    print(f"Variables: {info['num_variables']}  |  Edges: {edge_index.size(1)}")
+    print(f"Model: hidden={cfg['model']['hidden_dim']}, heads={cfg['model']['gat_heads']}, "
+          f"tcn_blocks={cfg['model'].get('tcn_blocks',2)}, gru={cfg['model']['gru_hidden']}")
+    print(f"Train samples: {len(train_dataset):,}  (stride={cfg['data'].get('train_stride','?')})")
+    print(f"Val samples:   {len(val_dataset):,}  (stride={cfg['data'].get('val_stride','?')})")
+    print(f"Test samples:  {len(test_dataset):,}  (stride={cfg['data'].get('test_stride','?')})")
+    print(f"Params: {sum(p.numel() for p in model.parameters()):,}")
 
     for epoch in range(1, int(cfg["train"]["epochs"]) + 1):
         train_loss = train_one_epoch(
-            model,
-            train_loader,
-            edge_index,
-            optimizer,
-            device,
+            model, train_loader, edge_index, optimizer, device,
             lambda_pred=float(cfg["train"]["lambda_pred"]),
+            use_amp=use_amp, scaler=scaler,
         )
         val_loss = evaluate_loss(
-            model,
-            val_loader,
-            edge_index,
-            device,
+            model, val_loader, edge_index, device,
             lambda_pred=float(cfg["train"]["lambda_pred"]),
         )
 
@@ -184,10 +192,7 @@ def main():
             break
 
     save_json(
-        {
-            "history": history,
-            "best_val_loss": float(best_val_loss),
-        },
+        {"history": history, "best_val_loss": float(best_val_loss)},
         os.path.join(save_dir, "train_history.json"),
     )
     print("Training finished.")

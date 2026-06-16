@@ -1,0 +1,44 @@
+# Full setting: stride=1, validated hyperparams from dev experiments
+data:
+  train_csv: "./data/normal.csv"
+  test_csv: "./data/merged.csv"
+  timestamp_col: "Timestamp"
+  label_col: "Normal/Attack"
+  normal_label: "Normal"
+  val_ratio: 0.2
+  window_size: 60
+  stride: 1
+  train_stride: 1
+  val_stride: 1
+  test_stride: 1
+  horizon: 1
+  label_mode: "future"
+  corr_threshold: 0.3
+
+model:
+  hidden_dim: 32
+  gat_heads: 2
+  gru_hidden: 32
+  tcn_channels: 32
+  tcn_blocks: 1
+  dropout: 0.2
+
+train:
+  seed: 42
+  batch_size: 256
+  epochs: 15
+  lr: 0.001
+  weight_decay: 0.00001
+  lambda_pred: 0.5
+  device: "cuda"
+  num_workers: 0
+  amp: false
+  lr_patience: 5
+  early_stop_patience: 10
+
+score:
+  topk: 1
+  threshold_quantile: 0.995
+
+output:
+  save_dir: "./outputs/full_setting"

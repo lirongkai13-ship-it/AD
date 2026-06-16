@@ -1,44 +1,36 @@
 data:
-  # Kaggle SWaT 数据集文件
   train_csv: "./data/normal.csv"
   test_csv: "./data/merged.csv"
-
   timestamp_col: "Timestamp"
   label_col: "Normal/Attack"
   normal_label: "Normal"
-
-  # normal.csv 按时间顺序切分
   val_ratio: 0.2
-
-  # 滑动窗口参数 (stride=10 加速训练，1小时出结果)
   window_size: 60
-  stride: 10
+  stride: 1
   horizon: 1
-
-  # future：窗口对齐 future_idx，更严格
   label_mode: "future"
-
-  # Pearson 静态图构建阈值
   corr_threshold: 0.3
 
 model:
-  hidden_dim: 48
-  gat_heads: 2
-  gru_hidden: 48
-  tcn_channels: 48
+  hidden_dim: 64
+  gat_heads: 4
+  gru_hidden: 64
+  tcn_channels: 64
+  tcn_blocks: 2
   dropout: 0.2
 
 train:
   seed: 42
-  batch_size: 256
-  epochs: 15
+  batch_size: 64
+  epochs: 30
   lr: 0.001
   weight_decay: 0.00001
   lambda_pred: 0.5
   device: "cuda"
   num_workers: 0
-  lr_patience: 3
-  early_stop_patience: 5
+  amp: true
+  lr_patience: 5
+  early_stop_patience: 10
 
 score:
   topk: 5

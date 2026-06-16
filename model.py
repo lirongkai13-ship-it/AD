@@ -145,6 +145,7 @@ class GATv2TCNGRUDetector(nn.Module):
         gat_heads=4,
         gru_hidden=64,
         tcn_channels=64,
+        tcn_blocks=2,
         dropout=0.2,
     ):
         super().__init__()
@@ -160,21 +161,15 @@ class GATv2TCNGRUDetector(nn.Module):
             dropout=dropout,
         )
 
-        # GAT 输出 [B, N, hidden]，转为 [B, hidden, N] 做变量维 TCN
-        self.tcn1 = TCNBlock(
-            hidden_dim,
-            tcn_channels,
-            kernel_size=3,
-            dilation=1,
-            dropout=dropout,
-        )
-        self.tcn2 = TCNBlock(
-            tcn_channels,
-            tcn_channels,
-            kernel_size=3,
-            dilation=2,
-            dropout=dropout,
-        )
+        # TCN 沿变量维处理，可配置层数
+        tcn_in = hidden_dim
+        self.tcn_layers = nn.ModuleList()
+        for i in range(tcn_blocks):
+            dilation = 2 ** i  # 1, 2, 4, ...
+            self.tcn_layers.append(
+                TCNBlock(tcn_in, tcn_channels, kernel_size=3, dilation=dilation, dropout=dropout)
+            )
+            tcn_in = tcn_channels
 
         # 把变量维序列送入 GRU
         self.gru = nn.GRU(
@@ -209,8 +204,8 @@ class GATv2TCNGRUDetector(nn.Module):
 
         # TCN 沿变量维处理空间融合后的表示
         z = h.transpose(1, 2)  # [B, hidden, N]
-        z = self.tcn1(z)
-        z = self.tcn2(z)
+        for tcn in self.tcn_layers:
+            z = tcn(z)
 
         # GRU 输入 [B, N, C]，把变量序列视作融合序列
         z = z.transpose(1, 2)
@@ -220,4 +215,110 @@ class GATv2TCNGRUDetector(nn.Module):
         pred = self.pred_head(h_last)
         recon = self.recon_head(h_last).view(b, w, n)
 
+        return pred, recon
+
+
+# ═══════════════════════════════════════════════════════════
+#  多尺度 TCN 模块
+# ═══════════════════════════════════════════════════════════
+
+class MultiScaleTCN(nn.Module):
+    """Inception 式多尺度 TCN：3 路不同膨胀率的并行分支，融合多尺度感受野"""
+
+    def __init__(self, in_channels, out_channels, kernel_size=3,
+                 dilations=(1, 2, 4), dropout=0.2):
+        super().__init__()
+        self.branches = nn.ModuleList()
+        for d in dilations:
+            self.branches.append(
+                TCNBlock(in_channels, out_channels, kernel_size, dilation=d, dropout=dropout)
+            )
+        # 融合层：3 路 concat → 投影回 out_channels
+        self.fusion = nn.Conv1d(out_channels * len(dilations), out_channels, kernel_size=1)
+
+    def forward(self, x):
+        # x: [B, C, N]
+        outputs = []
+        for branch in self.branches:
+            outputs.append(branch(x))
+        fused = self.fusion(torch.cat(outputs, dim=1))  # [B, C*3, N] → [B, C, N]
+        return fused
+
+
+# ═══════════════════════════════════════════════════════════
+#  GATv2 + MultiScaleTCN + GRU 检测器（增量实验用）
+# ═══════════════════════════════════════════════════════════
+
+class GATv2TCNGRUDetector_MS(nn.Module):
+    """
+    Baseline + 多尺度 TCN。其他与 GATv2TCNGRUDetector 一致，仅 TCN 替换为 MultiScaleTCN。
+    """
+
+    def __init__(
+        self,
+        num_variables,
+        window_size,
+        hidden_dim=64,
+        gat_heads=4,
+        gru_hidden=64,
+        tcn_channels=64,
+        dropout=0.2,
+    ):
+        super().__init__()
+        self.num_variables = num_variables
+        self.window_size = window_size
+
+        self.gat = GATv2Block(
+            in_dim=window_size,
+            hidden_dim=hidden_dim,
+            out_dim=hidden_dim,
+            heads=gat_heads,
+            dropout=dropout,
+        )
+
+        # 多尺度 TCN：dilation=1,2,4 三路并行
+        self.tcn = MultiScaleTCN(
+            in_channels=hidden_dim,
+            out_channels=tcn_channels,
+            kernel_size=3,
+            dilations=(1, 2, 4),
+            dropout=dropout,
+        )
+
+        self.gru = nn.GRU(
+            input_size=tcn_channels,
+            hidden_size=gru_hidden,
+            num_layers=1,
+            batch_first=True,
+        )
+
+        self.pred_head = nn.Sequential(
+            nn.Linear(gru_hidden, gru_hidden),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(gru_hidden, num_variables),
+        )
+
+        self.recon_head = nn.Sequential(
+            nn.Linear(gru_hidden, gru_hidden),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(gru_hidden, window_size * num_variables),
+        )
+
+    def forward(self, x, edge_index):
+        b, w, n = x.shape
+
+        node_feat = x.transpose(1, 2)           # [B, N, W]
+        h = self.gat(node_feat, edge_index)     # [B, N, hidden]
+
+        z = h.transpose(1, 2)                   # [B, hidden, N]
+        z = self.tcn(z)                         # 多尺度 TCN → [B, tcn_ch, N]
+
+        z = z.transpose(1, 2)                   # [B, N, tcn_ch]
+        _, h_last = self.gru(z)
+        h_last = h_last[-1]                     # [B, gru_hidden]
+
+        pred = self.pred_head(h_last)
+        recon = self.recon_head(h_last).view(b, w, n)
         return pred, recon
