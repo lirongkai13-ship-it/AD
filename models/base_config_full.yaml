@@ -1,0 +1,24 @@
+# External model full-parameter config (stride=1)
+data:
+  window_size: 60
+  train_stride: 1
+  val_stride: 1
+  test_stride: 1
+  horizon: 1
+  label_mode: "future"
+  corr_threshold: 0.3
+
+train:
+  seed: 42
+  batch_size: 256
+  epochs: 15
+  lr: 0.001
+  weight_decay: 0.00001
+  device: "cuda"
+  num_workers: 0
+  amp: false
+  lr_patience: 5
+  early_stop_patience: 10
+
+output:
+  base_dir: "./results/models_full"

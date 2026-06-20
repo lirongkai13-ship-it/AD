@@ -74,7 +74,7 @@ def run_one_model(name, config_path):
 
 if __name__ == "__main__":
     model_name = sys.argv[1]
-    config_path = os.path.join(os.path.dirname(__file__), "base_config.yaml")
+    config_path = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(__file__), "base_config.yaml")
     result = run_one_model(model_name, config_path)
     status = result.get("status", "?")
     print(f"\n=== RESULT:{model_name}:{status} ===")
